@@ -1,5 +1,4 @@
 
-
 import json
 import math
 import uuid
@@ -126,7 +125,6 @@ def combine_events(events: List[Event], start: pd.Period, months: int) -> Tuple[
         by_event = pd.DataFrame(index=[p.to_timestamp(how="end") for p in horizon])
 
     # Totals
-    # Sum only positive columns for income, negative for costs
     income = by_event.clip(lower=0).sum(axis=1)
     costs = -by_event.clip(upper=0).sum(axis=1)  # make positive
     net = income - costs
@@ -252,9 +250,10 @@ edited = st.data_editor(
     events_df(),
     num_rows="dynamic",
     key="events_editor",
+    column_order=["name","kind","amount","start","months","growth_rate_pct","notes"],  # hide 'id' from view
     use_container_width=True,
     column_config={
-        "id": st.column_config.TextColumn("ID", disabled=True),
+        # 'id' is intentionally hidden by column_order but still present in the data frame to preserve identity
         "name": st.column_config.TextColumn("Name", help="Short label for this event"),
         "kind": st.column_config.SelectboxColumn("Kind", options=["income", "cost"], help="Income adds; Cost subtracts"),
         "amount": st.column_config.NumberColumn("Amount / month", step=10.0, format="%.2f"),
@@ -285,21 +284,19 @@ with c2:
         )
         df = pd.concat([df, pd.DataFrame([new.to_dict()])], ignore_index=True)
         write_events_back(df)
-        st.experimental_rerun()
+        st.rerun()
 with c3:
     if st.button("♻️ Reset to defaults", use_container_width=True):
         st.session_state.events = [e.to_dict() for e in DEFAULT_EVENTS]
-        st.experimental_rerun()
+        st.rerun()
 with c4:
     uploaded = st.file_uploader("📥 Import events (JSON)", type=["json"], label_visibility="collapsed")
     if uploaded is not None:
         try:
             data = json.load(uploaded)
-            # accept list[dict] or {"events": [...]}
             if isinstance(data, dict) and "events" in data:
                 data = data["events"]
             assert isinstance(data, list)
-            # minimal validation
             df = pd.DataFrame(data)
             write_events_back(df)
             st.success("Imported events.", icon="✅")
