@@ -165,7 +165,7 @@ def accumulated_with_interest(
 
 st.set_page_config(page_title="Financial Planner", layout="wide")
 
-st.title("📈 Financial Planner — Incomes, Costs & Accumulated Balance")
+st.title("Financial Planner — Incomes, Costs & Accumulated Balance")
 
 with st.expander("About this tool", expanded=False):
     st.markdown(
@@ -182,7 +182,7 @@ and compute your **accumulated balance** with optional investment returns.
     )
 
 # --------- Sidebar: Global settings --------------------------------------------------
-st.sidebar.header("⚙️ Global Settings")
+st.sidebar.header("Global Settings")
 
 # Start month and horizon
 col_a, col_b = st.sidebar.columns(2)
@@ -243,7 +243,7 @@ def write_events_back(df: pd.DataFrame):
     st.session_state.events = df.to_dict(orient="records")
 
 
-st.subheader("🧾 Events")
+st.subheader("Events")
 st.caption("Tip: Growth can be **negative** for declines (e.g., -1%/mo). Dates use `YYYY-MM`.")
 
 edited = st.data_editor(
@@ -270,12 +270,12 @@ with c1:
         write_events_back(edited)
         st.success("Events saved in session.", icon="✅")
 with c2:
-    if st.button("➕ Add example income", use_container_width=True):
+    if st.button("➕ Add new line", use_container_width=True):
         df = events_df()
         new = Event(
             id=str(uuid.uuid4()),
             name="Side Gig",
-            kind="income",
+            kind="cost",
             amount=800.0,
             start=str(_this_month_period() + 1),
             months=18,
@@ -338,14 +338,14 @@ if show_acc_with_int:
 # Melt for multi-line plot
 long_df = plot_df.reset_index(names="Month").melt(id_vars="Month", var_name="Series", value_name="Amount")
 
-st.subheader("📊 Timeline")
+st.subheader("Timeline")
 st.caption("Income and Costs are monthly totals; Accumulated lines reflect cumulative net (with optional compounding).")
 
 fig = px.line(long_df, x="Month", y="Amount", color="Series", markers=True)
 fig.update_layout(legend_title_text="Series", hovermode="x unified", height=520, yaxis_tickformat=",.2f")
 st.plotly_chart(fig, use_container_width=True)
 
-st.subheader("🗃️ Monthly Breakdown")
+st.subheader("Monthly Breakdown")
 st.caption("Download as CSV for further analysis.")
 full_table = plot_df.round(2)
 st.dataframe(full_table, use_container_width=True)
@@ -357,12 +357,6 @@ st.download_button(
     use_container_width=True,
 )
 
-st.subheader("📦 Event Contributions (by event)")
+st.subheader("Event Contributions (by event)")
 st.caption("Positive values are incomes; negative values are costs.")
 st.dataframe(by_event_df.round(2), use_container_width=True)
-
-# Footer
-st.markdown("---")
-st.markdown(
-    "Built with ❤️ in Streamlit. Tip: Use **negative growth** for shrinking costs, or **positive growth** to model inflation."
-)
