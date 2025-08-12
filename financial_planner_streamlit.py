@@ -9,6 +9,7 @@ from typing import List, Literal, Optional, Tuple
 import numpy as np
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 
 
@@ -159,13 +160,51 @@ def accumulated_with_interest(
     return pd.Series(out, index=net.index)
 
 
+def _signed_area_traces(x, y, base_name, line_style=None, pos_alpha=0.25, neg_alpha=0.25):
+    """
+    Build two traces for a series that changes sign:
+    - Positive part: green line + filled area to zero
+    - Negative part: red line + filled area to zero
+    Returns a list of go.Scatter traces.
+    """
+    pos = [v if (v is not None and v >= 0) else None for v in y]
+    neg = [v if (v is not None and v < 0) else None for v in y]
+
+    pos_trace = go.Scatter(
+        x=x, y=pos, name=base_name,
+        mode="lines",
+        line=dict(color="green"),
+        fill="tozeroy",
+        fillcolor=f"rgba(0,128,0,{pos_alpha})",
+        legendgroup=base_name,
+        showlegend=True,
+        hovertemplate="%{x|%b %Y}<br>%{y:.2f}<extra>"+base_name+"</extra>",
+    )
+    if line_style:
+        pos_trace.line["dash"] = line_style
+
+    neg_trace = go.Scatter(
+        x=x, y=neg, name=base_name,
+        mode="lines",
+        line=dict(color="red"),
+        fill="tozeroy",
+        fillcolor=f"rgba(214,39,40,{neg_alpha})",  # Plotly default red-ish
+        legendgroup=base_name,
+        showlegend=False,  # don't duplicate legend entries
+        hovertemplate="%{x|%b %Y}<br>%{y:.2f}<extra>"+base_name+"</extra>",
+    )
+    if line_style:
+        neg_trace.line["dash"] = line_style
+
+    return [pos_trace, neg_trace]
+
 # -------------------------------
 # Streamlit UI
 # -------------------------------
 
 st.set_page_config(page_title="Financial Planner", layout="wide")
 
-st.title("Financial Planner — Incomes, Costs & Accumulated Balance")
+st.title("📈 Financial Planner — Incomes, Costs & Accumulated Balance")
 
 with st.expander("About this tool", expanded=False):
     st.markdown(
@@ -182,7 +221,7 @@ and compute your **accumulated balance** with optional investment returns.
     )
 
 # --------- Sidebar: Global settings --------------------------------------------------
-st.sidebar.header("Global Settings")
+st.sidebar.header("⚙️ Global Settings")
 
 # Start month and horizon
 col_a, col_b = st.sidebar.columns(2)
@@ -243,8 +282,7 @@ def write_events_back(df: pd.DataFrame):
     st.session_state.events = df.to_dict(orient="records")
 
 
-st.subheader("Events")
-st.caption("Tip: Growth can be **negative** for declines (e.g., -1%/mo). Dates use `YYYY-MM`.")
+st.subheader("🧾 Eventos")
 
 edited = st.data_editor(
     events_df(),
@@ -256,26 +294,26 @@ edited = st.data_editor(
         # 'id' is intentionally hidden by column_order but still present in the data frame to preserve identity
         "name": st.column_config.TextColumn("Name", help="Short label for this event"),
         "kind": st.column_config.SelectboxColumn("Kind", options=["income", "cost"], help="Income adds; Cost subtracts"),
-        "amount": st.column_config.NumberColumn("Amount / month", step=10.0, format="%.2f"),
+        "amount": st.column_config.NumberColumn("Amount / month", step=0.01, format="%.2f"),
         "start": st.column_config.TextColumn("Start (YYYY-MM)", help="First month included, e.g., 2025-08"),
         "months": st.column_config.NumberColumn("Duration (months)", min_value=1, step=1),
-        "growth_rate_pct": st.column_config.NumberColumn("Growth % / month", help="e.g., 0 for fixed, 1.5 means +1.5% per month", step=0.1, format="%.2f"),
+        "growth_rate_pct": st.column_config.NumberColumn("Growth % / month", help="e.g., 0 for fixed, 1.5 means +1.5% per month", step=0.01, format="%.2f"),
         "notes": st.column_config.TextColumn("Notes", help="Optional"),
     },
 )
 
 c1, c2, c3, c4 = st.columns(4)
 with c1:
-    if st.button("💾 Save edits", use_container_width=True):
+    if st.button("💾 Atualizar", use_container_width=True):
         write_events_back(edited)
         st.success("Events saved in session.", icon="✅")
 with c2:
-    if st.button("➕ Add new line", use_container_width=True):
+    if st.button("➕ Adicionar novo evento", use_container_width=True):
         df = events_df()
         new = Event(
             id=str(uuid.uuid4()),
             name="Side Gig",
-            kind="cost",
+            kind="income",
             amount=800.0,
             start=str(_this_month_period() + 1),
             months=18,
@@ -286,7 +324,7 @@ with c2:
         write_events_back(df)
         st.rerun()
 with c3:
-    if st.button("♻️ Reset to defaults", use_container_width=True):
+    if st.button("♻️ Resetar", use_container_width=True):
         st.session_state.events = [e.to_dict() for e in DEFAULT_EVENTS]
         st.rerun()
 with c4:
@@ -305,7 +343,7 @@ with c4:
 
 # Export events
 st.download_button(
-    "⬇️ Download events JSON",
+    "⬇️ Baixar Eventos",
     data=json.dumps({"events": st.session_state.events}, indent=2),
     file_name="events.json",
     mime="application/json",
@@ -338,14 +376,74 @@ if show_acc_with_int:
 # Melt for multi-line plot
 long_df = plot_df.reset_index(names="Month").melt(id_vars="Month", var_name="Series", value_name="Amount")
 
-st.subheader("Timeline")
-st.caption("Income and Costs are monthly totals; Accumulated lines reflect cumulative net (with optional compounding).")
+st.subheader("📊 Monthly Income, Costs & Net")
+st.caption("Income and Costs are monthly totals (blue/red). Net is shaded: green when positive, red when negative.")
 
-fig = px.line(long_df, x="Month", y="Amount", color="Series", markers=True)
-fig.update_layout(legend_title_text="Series", hovermode="x unified", height=520, yaxis_tickformat=",.2f")
-st.plotly_chart(fig, use_container_width=True)
+x = totals_df.index
+income_y = totals_df["Income"].tolist()
+costs_y = totals_df["Costs"].tolist()
+net_y = totals_df["Net"].tolist()
 
-st.subheader("Monthly Breakdown")
+fig1 = go.Figure()
+
+# Income (blue line)
+fig1.add_trace(go.Scatter(
+    x=x, y=income_y, name="Income",
+    mode="lines+markers",
+    line=dict(color="blue"),
+    hovertemplate="%{x|%b %Y}<br>%{y:.2f}<extra>Income</extra>"
+))
+
+# Costs (red line)
+fig1.add_trace(go.Scatter(
+    x=x, y=costs_y, name="Costs",
+    mode="lines+markers",
+    line=dict(color="red"),
+    hovertemplate="%{x|%b %Y}<br>%{y:.2f}<extra>Costs</extra>"
+))
+
+# Net (signed area)
+for tr in _signed_area_traces(x, net_y, "Net", line_style=None, pos_alpha=0.25, neg_alpha=0.25):
+    fig1.add_trace(tr)
+
+fig1.update_layout(
+    legend_title_text="Series",
+    hovermode="x unified",
+    height=520,
+    yaxis_tickformat=",.2f",
+)
+
+st.plotly_chart(fig1, use_container_width=True)
+
+# ----------------- Accumulated chart -----------------
+st.subheader("📈 Accumulated Balance")
+st.caption("Shaded by sign (green=positive, red=negative). 'With interest' uses the annual rate and timing from the sidebar.")
+
+fig2 = go.Figure()
+
+# Accumulated (no interest)
+if show_acc_no_int:
+    acc_no_int_y = acc_no_int.tolist()
+    for tr in _signed_area_traces(x, acc_no_int_y, "Accumulated (no interest)", line_style="solid", pos_alpha=0.20, neg_alpha=0.20):
+        fig2.add_trace(tr)
+
+# Accumulated (with interest)
+if show_acc_with_int:
+    acc_with_int_y = acc_with_int.tolist()
+    line_style = "dash"  # visually distinguish from no-interest
+    for tr in _signed_area_traces(x, acc_with_int_y, f"Accumulated (with interest, {annual_rate_pct:.2f}%/yr)", line_style=line_style, pos_alpha=0.20, neg_alpha=0.20):
+        fig2.add_trace(tr)
+
+fig2.update_layout(
+    legend_title_text="Series",
+    hovermode="x unified",
+    height=520,
+    yaxis_tickformat=",.2f",
+)
+
+st.plotly_chart(fig2, use_container_width=True)
+
+st.subheader("🗃️ Monthly Breakdown")
 st.caption("Download as CSV for further analysis.")
 full_table = plot_df.round(2)
 st.dataframe(full_table, use_container_width=True)
@@ -357,6 +455,12 @@ st.download_button(
     use_container_width=True,
 )
 
-st.subheader("Event Contributions (by event)")
+st.subheader("📦 Event Contributions (by event)")
 st.caption("Positive values are incomes; negative values are costs.")
 st.dataframe(by_event_df.round(2), use_container_width=True)
+
+# Footer
+st.markdown("---")
+st.markdown(
+    "Built with ❤️ in Streamlit. Tip: Use **negative growth** for shrinking costs, or **positive growth** to model inflation."
+)
