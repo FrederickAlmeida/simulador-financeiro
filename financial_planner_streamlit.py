@@ -140,7 +140,7 @@ def combine_events(events: List[Event], start: pd.Period, months: int) -> Tuple[
     """
     Return (by_event_df, totals_df)
       - by_event_df: each event as a separate column, indexed by month-end timestamps
-      - totals_df: columns ['Income', 'Costs', 'Net'], indexed by month-end timestamps
+      - totals_df: columns ['Receita', 'Custos', 'Saldo Líquido'], indexed by month-end timestamps
     """
     horizon = period_range(start, months)
     series_list = []
@@ -158,7 +158,7 @@ def combine_events(events: List[Event], start: pd.Period, months: int) -> Tuple[
     costs = -by_event.clip(upper=0).sum(axis=1)  # make positive
     net = income - costs
 
-    totals = pd.DataFrame({"Income": income, "Costs": costs, "Net": net})
+    totals = pd.DataFrame({"Receita": income, "Custos": costs, "Saldo Líquido": net})
     return by_event, totals
 
 
@@ -169,18 +169,18 @@ def accumulated_no_interest(net: pd.Series) -> pd.Series:
 def accumulated_with_interest(
     net: pd.Series,
     annual_rate_pct: float,
-    contribution_timing: Literal["end_of_month", "beginning_of_month"] = "end_of_month",
+    contribution_timing: Literal["final_do_mes", "inicio_do_mes"] = "final_do_mes",
 ) -> pd.Series:
     """
     Compound a rolling balance using net monthly contributions.
-    - If contribution_timing == 'end_of_month': balance = balance*(1+r) + net
-    - If 'beginning_of_month': balance = (balance + net)*(1+r)
+    - If contribution_timing == 'final_do_mes': balance = balance*(1+r) + net
+    - If 'inicio_do_mes': balance = (balance + net)*(1+r)
     """
     r = effective_monthly_rate_from_annual(annual_rate_pct)
     bal = 0.0
     out = []
     for v in net.to_list():
-        if contribution_timing == "beginning_of_month":
+        if contribution_timing == "inicio_do_mes":
             bal = (bal + v) * (1.0 + r)
         else:
             bal = bal * (1.0 + r) + v
@@ -230,43 +230,43 @@ def _signed_area_traces(x, y, base_name, line_style=None, pos_alpha=0.25, neg_al
 # Streamlit UI
 # -------------------------------
 
-st.set_page_config(page_title="Financial Planner", layout="wide")
+st.set_page_config(page_title="Planejador Financeiro", layout="wide")
 
-st.title("📈 Financial Planner — Incomes, Costs & Accumulated Balance")
+st.title("Planejador Financeiro — Receitas, Custos e Saldo Acumulado")
 
-with st.expander("About this tool", expanded=False):
+with st.expander("Sobre esta ferramenta", expanded=False):
     st.markdown(
         """
-This local app lets you model monthly **incomes** and **costs**, visualize them on a timeline,
-and compute your **accumulated balance** with optional investment returns.
+Este aplicativo local permite modelar **receitas** e **custos** mensais, visualizá-los em uma linha do tempo,
+e calcular seu **saldo acumulado** com retornos de investimento opcionais.
 
-**Highlights**
-- Add multiple events (income or cost), fixed or with **monthly growth** (positive or negative).
-- Choose a **start month** and **horizon** (number of months).
-- Toggle **accumulated balance** with or without interest.
-- Export/import your scenario as JSON and download the monthly results as CSV.
+**Destaques**
+- Adicione múltiplos eventos (receita ou custo), fixos ou com **crescimento mensal** (positivo ou negativo).
+- Escolha o **mês de início** e o **horizonte** (número de meses).
+- Alterne entre **saldo acumulado** com ou sem juros.
+- Exporte/importe seu cenário como JSON e baixe os resultados mensais como CSV.
         """
     )
 
 # --------- Sidebar: Global settings --------------------------------------------------
-st.sidebar.header("⚙️ Global Settings")
+st.sidebar.header("Configurações Globais")
 
 # Start month and horizon
 col_a, col_b = st.sidebar.columns(2)
 with col_a:
-    start_year = st.number_input("Start Year", min_value=1970, max_value=2100, value=_this_month_period().year)
+    start_year = st.number_input("Ano Inicial", min_value=1970, max_value=2100, value=_this_month_period().year)
 with col_b:
-    start_month = st.number_input("Start Month", min_value=1, max_value=12, value=_this_month_period().month)
+    start_month = st.number_input("Mês Inicial", min_value=1, max_value=12, value=_this_month_period().month)
 start_period = pd.Period(freq="M", year=int(start_year), month=int(start_month))
 
-horizon_months = st.sidebar.slider("Horizon (months)", min_value=3, max_value=240, value=36, step=1)
+horizon_months = st.sidebar.slider("Horizonte (meses)", min_value=3, max_value=240, value=36, step=1)
 
 # Accumulated / interest options
-show_acc_no_int = st.sidebar.checkbox("Show Accumulated (no interest)", value=True)
-show_acc_with_int = st.sidebar.checkbox("Show Accumulated (with interest)", value=True)
-annual_rate_pct = st.sidebar.number_input("Annual return (%)", min_value=-100.0, max_value=1000.0, value=6.0, step=0.10)
+show_acc_no_int = st.sidebar.checkbox("Mostrar Acumulado (sem juros)", value=True)
+show_acc_with_int = st.sidebar.checkbox("Mostrar Acumulado (com juros)", value=True)
+annual_rate_pct = st.sidebar.number_input("Retorno anual (%)", min_value=-100.0, max_value=1000.0, value=6.0, step=0.10)
 timing = st.sidebar.radio(
-    "Contribution timing", options=("end_of_month", "beginning_of_month"), index=0, horizontal=False
+    "Momento da contribuição", options=("final_do_mes", "inicio_do_mes"), index=0, horizontal=False
 )
 
 # --------- Session state: Events -----------------------------------------------------
@@ -336,7 +336,7 @@ def write_events_back(df: pd.DataFrame):
     st.session_state.events = df.to_dict(orient="records")
 
 
-st.subheader("🧾 Eventos")
+st.subheader("Eventos")
 
 edited = st.data_editor(
     events_df(),
@@ -346,23 +346,23 @@ edited = st.data_editor(
     use_container_width=True,
     column_config={
         # 'id' is intentionally hidden by column_order but still present in the data frame to preserve identity
-        "name": st.column_config.TextColumn("Name", help="Short label for this event"),
-        "kind": st.column_config.SelectboxColumn("Kind", options=["income", "cost"], help="Income adds; Cost subtracts"),
-        "amount": st.column_config.NumberColumn("Amount / month", step=0.01, format="%.2f"),
-        "start": st.column_config.TextColumn("Start (YYYY-MM)", help="First month included, e.g., 2025-08"),
-        "permanent": st.column_config.CheckboxColumn("Permanent", help="If checked, ignore months and run to horizon end"),
-        "months": st.column_config.NumberColumn("Duration (months)", min_value=1, step=1),
-        "end": st.column_config.TextColumn("End (YYYY-MM)", help="Inclusive end month; overrides Duration if set"),
-        "growth_rate_pct": st.column_config.NumberColumn("Growth % / month", help="e.g., 0 for fixed, 1.5 means +1.5% per month", step=0.01, format="%.2f"),
-        "notes": st.column_config.TextColumn("Notes", help="Optional"),
+        "name": st.column_config.TextColumn("Nome", help="Short label for this event"),
+        "kind": st.column_config.SelectboxColumn("Tipo", options=["income", "cost"], help="Receita adds; Cost subtracts"),
+        "amount": st.column_config.NumberColumn("Valor / mês", step=0.01, format="%.2f"),
+        "start": st.column_config.TextColumn("Início (AAAA-MM)", help="First month included, e.g., 2025-08"),
+        "permanent": st.column_config.CheckboxColumn("Permanente", help="If checked, ignore months and run to horizon end"),
+        "months": st.column_config.NumberColumn("Duração (meses)", min_value=1, step=1),
+        "end": st.column_config.TextColumn("Fim (AAAA-MM)", help="Inclusive end month; overrides Duration if set"),
+        "growth_rate_pct": st.column_config.NumberColumn("Crescimento % / mês", help="e.g., 0 for fixed, 1.5 means +1.5% per month", step=0.01, format="%.2f"),
+        "notes": st.column_config.TextColumn("Notas", help="Optional"),
     },
 )
 
 c1, c2, c3, c4 = st.columns(4)
 with c1:
-    if st.button("💾 Atualizar", use_container_width=True):
+    if st.button("Atualizar", use_container_width=True):
         write_events_back(edited)
-        st.success("Events saved in session.", icon="✅")
+        st.success("Eventos salvos na sessão.", icon="✅")
 with c2:
     if st.button("➕ Adicionar novo evento", use_container_width=True):
         df = events_df()
@@ -385,7 +385,7 @@ with c3:
         st.session_state.events = [e.to_dict() for e in DEFAULT_EVENTS]
         st.rerun()
 with c4:
-    uploaded = st.file_uploader("📥 Import events (JSON)", type=["json"], label_visibility="collapsed")
+    uploaded = st.file_uploader("Importar eventos (JSON)", type=["json"], label_visibility="collapsed")
     if uploaded is not None:
         try:
             data = json.load(uploaded)
@@ -394,7 +394,7 @@ with c4:
             assert isinstance(data, list)
             df = pd.DataFrame(data)
             write_events_back(df)
-            st.success("Imported events.", icon="✅")
+            st.success("Eventos importados.", icon="✅")
         except Exception as e:
             st.error(f"Failed to import: {e}")
 
@@ -417,50 +417,50 @@ by_event_df, totals_df = combine_events(
 )
 
 # Accumulated
-acc_no_int = accumulated_no_interest(totals_df["Net"]) if show_acc_no_int else None
+acc_no_int = accumulated_no_interest(totals_df["Saldo Líquido"]) if show_acc_no_int else None
 acc_with_int = accumulated_with_interest(
-    totals_df["Net"], annual_rate_pct=annual_rate_pct, contribution_timing=timing
+    totals_df["Saldo Líquido"], annual_rate_pct=annual_rate_pct, contribution_timing=timing
 ) if show_acc_with_int else None
 
 # Build plot
 plot_df = totals_df.copy()
 if show_acc_no_int:
-    plot_df["Accumulated (no interest)"] = acc_no_int
+    plot_df["Acumulado (sem juros)"] = acc_no_int
 if show_acc_with_int:
-    suffix = "end" if timing == "end_of_month" else "begin"
-    plot_df[f"Accumulated (with interest, {annual_rate_pct:.2f}%/yr, {suffix})"] = acc_with_int
+    suffix = "end" if timing == "final_do_mes" else "begin"
+    plot_df[f"Acumulado (com juros, {annual_rate_pct:.2f}%/yr, {suffix})"] = acc_with_int
 
 # Melt for multi-line plot
 long_df = plot_df.reset_index(names="Month").melt(id_vars="Month", var_name="Series", value_name="Amount")
 
-st.subheader("📊 Monthly Income, Costs & Net")
-st.caption("Income and Costs are monthly totals (blue/red). Net is shaded: green when positive, red when negative.")
+st.subheader("Receita, Custos e Saldo Líquido Mensal")
+st.caption("Receita e Custos são totais mensais (azul/vermelho). Saldo líquido é: verde quando positivo, vermelho quando negativo.")
 
 x = totals_df.index
-income_y = totals_df["Income"].tolist()
-costs_y = totals_df["Costs"].tolist()
-net_y = totals_df["Net"].tolist()
+income_y = totals_df["Receita"].tolist()
+costs_y = totals_df["Custos"].tolist()
+net_y = totals_df["Saldo Líquido"].tolist()
 
 fig1 = go.Figure()
 
-# Income (blue line)
+# Receita (blue line)
 fig1.add_trace(go.Scatter(
-    x=x, y=income_y, name="Income",
+    x=x, y=income_y, name="Receita",
     mode="lines+markers",
     line=dict(color="blue"),
-    hovertemplate="%{x|%b %Y}<br>%{y:.2f}<extra>Income</extra>"
+    hovertemplate="%{x|%b %Y}<br>%{y:.2f}<extra>Receita</extra>"
 ))
 
-# Costs (red line)
+# Custos (red line)
 fig1.add_trace(go.Scatter(
-    x=x, y=costs_y, name="Costs",
+    x=x, y=costs_y, name="Custos",
     mode="lines+markers",
     line=dict(color="red"),
-    hovertemplate="%{x|%b %Y}<br>%{y:.2f}<extra>Costs</extra>"
+    hovertemplate="%{x|%b %Y}<br>%{y:.2f}<extra>Custos</extra>"
 ))
 
-# Net (signed area)
-for tr in _signed_area_traces(x, net_y, "Net", line_style=None, pos_alpha=0.25, neg_alpha=0.25):
+# Saldo Líquido (signed area)
+for tr in _signed_area_traces(x, net_y, "Saldo Líquido", line_style=None, pos_alpha=0.25, neg_alpha=0.25):
     fig1.add_trace(tr)
 
 fig1.update_layout(
@@ -473,22 +473,22 @@ fig1.update_layout(
 st.plotly_chart(fig1, use_container_width=True)
 
 # ----------------- Accumulated chart -----------------
-st.subheader("📈 Accumulated Balance")
-st.caption("Shaded by sign (green=positive, red=negative). 'With interest' uses the annual rate and timing from the sidebar.")
+st.subheader("Saldo Acumulado")
+st.caption("(verde=positivo, vermelho=negativo). 'Com juros' usa a taxa anual e o momento definidos na barra lateral.")
 
 fig2 = go.Figure()
 
-# Accumulated (no interest)
+# Acumulado (sem juros)
 if show_acc_no_int:
     acc_no_int_y = acc_no_int.tolist()
-    for tr in _signed_area_traces(x, acc_no_int_y, "Accumulated (no interest)", line_style="solid", pos_alpha=0.20, neg_alpha=0.20):
+    for tr in _signed_area_traces(x, acc_no_int_y, "Acumulado (sem juros)", line_style="solid", pos_alpha=0.20, neg_alpha=0.20):
         fig2.add_trace(tr)
 
-# Accumulated (with interest)
+# Acumulado (com juros)
 if show_acc_with_int:
     acc_with_int_y = acc_with_int.tolist()
     line_style = "dash"  # visually distinguish from no-interest
-    for tr in _signed_area_traces(x, acc_with_int_y, f"Accumulated (with interest, {annual_rate_pct:.2f}%/yr)", line_style=line_style, pos_alpha=0.20, neg_alpha=0.20):
+    for tr in _signed_area_traces(x, acc_with_int_y, f"Acumulado (com juros, {annual_rate_pct:.2f}%/yr)", line_style=line_style, pos_alpha=0.20, neg_alpha=0.20):
         fig2.add_trace(tr)
 
 fig2.update_layout(
@@ -500,24 +500,24 @@ fig2.update_layout(
 
 st.plotly_chart(fig2, use_container_width=True)
 
-st.subheader("🗃️ Monthly Breakdown")
-st.caption("Download as CSV for further analysis.")
+st.subheader("Detalhamento Mensal")
+st.caption("Baixe como CSV para análise adicional.")
 full_table = plot_df.round(2)
 st.dataframe(full_table, use_container_width=True)
 st.download_button(
-    "⬇️ Download monthly CSV",
+    "Baixar CSV mensal",
     data=full_table.to_csv(index=True).encode("utf-8"),
     file_name="monthly_breakdown.csv",
     mime="text/csv",
     use_container_width=True,
 )
 
-st.subheader("📦 Event Contributions (by event)")
-st.caption("Positive values are incomes; negative values are costs.")
+st.subheader("Contribuição dos Eventos (por evento)")
+st.caption("Valores positivos são receitas; valores negativos são custos.")
 st.dataframe(by_event_df.round(2), use_container_width=True)
 
 # Footer
 st.markdown("---")
 st.markdown(
-    "Built with ❤️ in Streamlit. Tip: Use **negative growth** for shrinking costs, or **positive growth** to model inflation."
+    "Use **crescimento negativo** para custos decrescentes, ou **crescimento positivo** para modelar inflação."
 )
