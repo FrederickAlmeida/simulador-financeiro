@@ -8,7 +8,8 @@
       "start": "2025-08",
       "months": 36,
       "growth_rate_pct": 0.0,
-      "notes": "Monthly net salary"
+      "notes": "Monthly net salary",
+      "permanent": false
     },
     {
       "id": "b15e7cdb-9962-4c97-8989-891c60b04603",
@@ -18,7 +19,8 @@
       "start": "2025-08",
       "months": 36,
       "growth_rate_pct": 0.0,
-      "notes": "Fixed rent"
+      "notes": "Fixed rent",
+      "permanent": false
     },
     {
       "id": "55d8d17f-be05-4725-9d23-eeacb30f21b9",
@@ -28,7 +30,8 @@
       "start": "2025-08",
       "months": 36,
       "growth_rate_pct": 0.5,
-      "notes": "~0.5% monthly inflation"
+      "notes": "~0.5% monthly inflation",
+      "permanent": false
     },
     {
       "id": "2751380f-d29d-4d78-ade7-5dee4b21f561",
@@ -38,7 +41,8 @@
       "start": "2025-08",
       "months": 24,
       "growth_rate_pct": 0.0,
-      "notes": "Cancels after 24 months"
+      "notes": "Cancels after 24 months",
+      "permanent": false
     },
     {
       "id": "06f1a927-398f-473d-8a97-3657009336f6",
@@ -48,7 +52,8 @@
       "start": "2025-08",
       "months": 24,
       "growth_rate_pct": 0.0,
-      "notes": ""
+      "notes": "",
+      "permanent": false
     },
     {
       "id": "c1678cf6-cfc3-4769-9c58-aff4e4434d32",
@@ -58,7 +63,8 @@
       "start": "2025-08",
       "months": 24,
       "growth_rate_pct": 0.0,
-      "notes": ""
+      "notes": "",
+      "permanent": false
     },
     {
       "id": "7e1ec93f-a970-4082-889b-964b6006da74",
@@ -68,7 +74,8 @@
       "start": "2025-08",
       "months": 24,
       "growth_rate_pct": 0.0,
-      "notes": ""
+      "notes": "",
+      "permanent": false
     },
     {
       "id": "8400f16b-f89d-4d55-bf89-2158eadaa0df",
@@ -78,7 +85,8 @@
       "start": "2025-08",
       "months": 24,
       "growth_rate_pct": 0.0,
-      "notes": ""
+      "notes": "",
+      "permanent": false
     },
     {
       "id": "ee15cc02-b69e-4caf-8561-89b28a4b5173",
@@ -88,7 +96,8 @@
       "start": "2025-08",
       "months": 24,
       "growth_rate_pct": 0.0,
-      "notes": ""
+      "notes": "",
+      "permanent": false
     },
     {
       "id": "47ec97db-41c3-411b-a139-c4ec550404c1",
@@ -98,7 +107,8 @@
       "start": "2025-09",
       "months": 3,
       "growth_rate_pct": 0.0,
-      "notes": ""
+      "notes": "",
+      "permanent": false
     },
     {
       "id": "962e1a99-8dde-4149-a8cc-16443c6ff067",
@@ -108,7 +118,8 @@
       "start": "2026-03",
       "months": 24,
       "growth_rate_pct": 0.3,
-      "notes": ""
+      "notes": "",
+      "permanent": false
     }
   ]
 }

@@ -68,6 +68,7 @@ class Event:
     amount: float                    # base monthly amount
     start: str                       # 'YYYY-MM'
     months: int                      # duration in months (>=1)
+    permanent: bool = False          # if True, ignore months and run to horizon end
     growth_rate_pct: float = 0.0     # monthly growth/decay, e.g., 1.5 = +1.5% per month
     notes: str = ""
 
@@ -79,32 +80,47 @@ class Event:
 # Core calculations
 # -------------------------------
 
+
 def expand_event_to_series(ev: Event, horizon: List[pd.Period]) -> pd.Series:
     """
     Expand a single event into a monthly series aligned to 'horizon'.
     Applies monthly growth (compound) if growth_rate_pct != 0.
+    Supports permanent events (ignore 'months' and run to horizon end from 'start').
     """
     start_p = parse_year_month(ev.start)
     monthly_g = ev.growth_rate_pct / 100.0
 
-    # Build the event's own period range
-    ev_months = max(1, int(ev.months))
-    ev_range = period_range(start_p, ev_months)
-
-    values = {}
-    for idx, p in enumerate(ev_range):
-        amt = ev.amount * ((1.0 + monthly_g) ** idx)
-        values[p] = amt
-
-    # Align to the horizon; zero when outside
     aligned = []
-    for p in horizon:
-        v = values.get(p, 0.0)
-        # Sign by kind
-        if ev.kind == "income":
-            aligned.append(v)
-        else:  # cost
-            aligned.append(-v)
+    if ev.permanent:
+        # For each month in horizon, apply amount if on/after start; compound growth from start
+        for p in horizon:
+            if p < start_p:
+                v = 0.0
+            else:
+                # months since start
+                idx = (p.year - start_p.year) * 12 + (p.month - start_p.month)
+                v = ev.amount * ((1.0 + monthly_g) ** idx)
+            if ev.kind == "income":
+                aligned.append(v)
+            else:
+                aligned.append(-v)
+    else:
+        # Non-permanent: use 'months' duration
+        ev_months = max(1, int(ev.months))
+        ev_range = period_range(start_p, ev_months)
+
+        values = {}
+        for idx, p in enumerate(ev_range):
+            amt = ev.amount * ((1.0 + monthly_g) ** idx)
+            values[p] = amt
+
+        for p in horizon:
+            v = values.get(p, 0.0)
+            if ev.kind == "income":
+                aligned.append(v)
+            else:
+                aligned.append(-v)
+
     return pd.Series(aligned, index=[p.to_timestamp(how="end") for p in horizon], name=ev.name)
 
 
@@ -243,10 +259,10 @@ timing = st.sidebar.radio(
 
 # --------- Session state: Events -----------------------------------------------------
 DEFAULT_EVENTS = [
-    Event(id=str(uuid.uuid4()), name="Salary", kind="income", amount=5000.0, start=str(_this_month_period()), months=36, growth_rate_pct=0.0, notes="Monthly net salary"),
-    Event(id=str(uuid.uuid4()), name="Rent",   kind="cost",   amount=1800.0, start=str(_this_month_period()), months=36, growth_rate_pct=0.0, notes="Fixed rent"),
-    Event(id=str(uuid.uuid4()), name="Groceries", kind="cost", amount=900.0, start=str(_this_month_period()), months=36, growth_rate_pct=0.5, notes="~0.5% monthly inflation"),
-    Event(id=str(uuid.uuid4()), name="Streaming", kind="cost", amount=45.0, start=str(_this_month_period()), months=24, growth_rate_pct=0.0, notes="Cancels after 24 months"),
+    Event(id=str(uuid.uuid4()), name="Salary", kind="income", amount=5000.0, start=str(_this_month_period()), months=36, permanent=False, growth_rate_pct=0.0, notes="Monthly net salary"),
+    Event(id=str(uuid.uuid4()), name="Rent",   kind="cost",   amount=1800.0, start=str(_this_month_period()), months=36, permanent=False, growth_rate_pct=0.0, notes="Fixed rent"),
+    Event(id=str(uuid.uuid4()), name="Groceries", kind="cost", amount=900.0, start=str(_this_month_period()), months=36, permanent=False, growth_rate_pct=0.5, notes="~0.5% monthly inflation"),
+    Event(id=str(uuid.uuid4()), name="Streaming", kind="cost", amount=45.0, start=str(_this_month_period()), months=24, permanent=False, growth_rate_pct=0.0, notes="Cancels after 24 months"),
 ]
 
 if "events" not in st.session_state:
@@ -256,7 +272,7 @@ if "events" not in st.session_state:
 def events_df() -> pd.DataFrame:
     df = pd.DataFrame(st.session_state.events)
     # Ensure ordered columns
-    cols = ["id", "name", "kind", "amount", "start", "months", "growth_rate_pct", "notes"]
+    cols = ["id", "name", "kind", "amount", "start", "months", "permanent", "growth_rate_pct", "notes"]
     df = df.reindex(columns=cols)
     return df
 
@@ -276,6 +292,21 @@ def write_events_back(df: pd.DataFrame):
     df["amount"] = pd.to_numeric(df["amount"], errors="coerce").fillna(0.0)
     df["start"] = df["start"].fillna(str(_this_month_period())).astype(str)
     df["months"] = pd.to_numeric(df["months"], errors="coerce").fillna(1).astype(int).clip(lower=1)
+
+    # permanent parsing (robust against strings like "true"/"false")
+    if "permanent" not in df.columns:
+        df["permanent"] = False
+    def _parse_bool(v):
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, (int, float)):
+            return v != 0
+        if isinstance(v, str):
+            s = v.strip().lower()
+            return s in ("true", "1", "yes", "y", "t")
+        return False
+    df["permanent"] = df["permanent"].apply(_parse_bool)
+
     df["growth_rate_pct"] = pd.to_numeric(df["growth_rate_pct"], errors="coerce").fillna(0.0)
     df["notes"] = df["notes"].fillna("").astype(str)
 
@@ -288,7 +319,7 @@ edited = st.data_editor(
     events_df(),
     num_rows="dynamic",
     key="events_editor",
-    column_order=["name","kind","amount","start","months","growth_rate_pct","notes"],  # hide 'id' from view
+    column_order=["name","kind","amount","start","permanent","months","growth_rate_pct","notes"],  # hide 'id' from view
     use_container_width=True,
     column_config={
         # 'id' is intentionally hidden by column_order but still present in the data frame to preserve identity
@@ -296,6 +327,7 @@ edited = st.data_editor(
         "kind": st.column_config.SelectboxColumn("Kind", options=["income", "cost"], help="Income adds; Cost subtracts"),
         "amount": st.column_config.NumberColumn("Amount / month", step=0.01, format="%.2f"),
         "start": st.column_config.TextColumn("Start (YYYY-MM)", help="First month included, e.g., 2025-08"),
+        "permanent": st.column_config.CheckboxColumn("Permanent", help="If checked, ignore months and run to horizon end"),
         "months": st.column_config.NumberColumn("Duration (months)", min_value=1, step=1),
         "growth_rate_pct": st.column_config.NumberColumn("Growth % / month", help="e.g., 0 for fixed, 1.5 means +1.5% per month", step=0.01, format="%.2f"),
         "notes": st.column_config.TextColumn("Notes", help="Optional"),
@@ -317,6 +349,7 @@ with c2:
             amount=800.0,
             start=str(_this_month_period() + 1),
             months=18,
+            permanent=False,
             growth_rate_pct=0.0,
             notes="Freelance"
         )
