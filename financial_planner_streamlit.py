@@ -68,6 +68,7 @@ class Event:
     amount: float                    # base monthly amount
     start: str                       # 'YYYY-MM'
     months: int                      # duration in months (>=1)
+    end: Optional[str] = None        # 'YYYY-MM' (inclusive). If provided, overrides 'months'.
     permanent: bool = False          # if True, ignore months and run to horizon end
     growth_rate_pct: float = 0.0     # monthly growth/decay, e.g., 1.5 = +1.5% per month
     notes: str = ""
@@ -81,45 +82,56 @@ class Event:
 # -------------------------------
 
 
+
 def expand_event_to_series(ev: Event, horizon: List[pd.Period]) -> pd.Series:
     """
     Expand a single event into a monthly series aligned to 'horizon'.
     Applies monthly growth (compound) if growth_rate_pct != 0.
-    Supports permanent events (ignore 'months' and run to horizon end from 'start').
+    Supports permanent events and optional end date.
+    Precedence: permanent > end (inclusive) > months
     """
     start_p = parse_year_month(ev.start)
     monthly_g = ev.growth_rate_pct / 100.0
 
     aligned = []
+
+    def _apply_sign(v):
+        return v if ev.kind == "income" else -v
+
     if ev.permanent:
-        # For each month in horizon, apply amount if on/after start; compound growth from start
         for p in horizon:
             if p < start_p:
-                v = 0.0
+                aligned.append(0.0)
             else:
-                # months since start
                 idx = (p.year - start_p.year) * 12 + (p.month - start_p.month)
-                v = ev.amount * ((1.0 + monthly_g) ** idx)
-            if ev.kind == "income":
-                aligned.append(v)
-            else:
-                aligned.append(-v)
-    else:
-        # Non-permanent: use 'months' duration
-        ev_months = max(1, int(ev.months))
-        ev_range = period_range(start_p, ev_months)
+                aligned.append(_apply_sign(ev.amount * ((1.0 + monthly_g) ** idx)))
+        return pd.Series(aligned, index=[p.to_timestamp(how="end") for p in horizon], name=ev.name)
 
-        values = {}
-        for idx, p in enumerate(ev_range):
-            amt = ev.amount * ((1.0 + monthly_g) ** idx)
-            values[p] = amt
-
+    # End date (inclusive) if provided
+    if getattr(ev, "end", None):
+        end_p = parse_year_month(ev.end, default=start_p)
+        if end_p < start_p:
+            end_p = start_p
         for p in horizon:
-            v = values.get(p, 0.0)
-            if ev.kind == "income":
-                aligned.append(v)
+            if p < start_p or p > end_p:
+                aligned.append(0.0)
             else:
-                aligned.append(-v)
+                idx = (p.year - start_p.year) * 12 + (p.month - start_p.month)
+                aligned.append(_apply_sign(ev.amount * ((1.0 + monthly_g) ** idx)))
+        return pd.Series(aligned, index=[p.to_timestamp(how="end") for p in horizon], name=ev.name)
+
+    # Fallback: fixed months
+    ev_months = max(1, int(ev.months))
+    ev_range = period_range(start_p, ev_months)
+
+    values = {}
+    for idx, p in enumerate(ev_range):
+        amt = ev.amount * ((1.0 + monthly_g) ** idx)
+        values[p] = amt
+
+    for p in horizon:
+        v = values.get(p, 0.0)
+        aligned.append(_apply_sign(v))
 
     return pd.Series(aligned, index=[p.to_timestamp(how="end") for p in horizon], name=ev.name)
 
@@ -272,7 +284,7 @@ if "events" not in st.session_state:
 def events_df() -> pd.DataFrame:
     df = pd.DataFrame(st.session_state.events)
     # Ensure ordered columns
-    cols = ["id", "name", "kind", "amount", "start", "months", "permanent", "growth_rate_pct", "notes"]
+    cols = ["id", "name", "kind", "amount", "start", "months", "end", "permanent", "growth_rate_pct", "notes"]
     df = df.reindex(columns=cols)
     return df
 
@@ -291,6 +303,17 @@ def write_events_back(df: pd.DataFrame):
     df["kind"] = df["kind"].where(df["kind"].isin(["income", "cost"]), "income")
     df["amount"] = pd.to_numeric(df["amount"], errors="coerce").fillna(0.0)
     df["start"] = df["start"].fillna(str(_this_month_period())).astype(str)
+
+    # add/clean end column (YYYY-MM as string, inclusive)
+    if "end" not in df.columns:
+        df["end"] = None
+    def _clean_end(v):
+        if v is None:
+            return None
+        s = str(v).strip()
+        return s if len(s) >= 6 else None
+    df["end"] = df["end"].apply(_clean_end)
+
     df["months"] = pd.to_numeric(df["months"], errors="coerce").fillna(1).astype(int).clip(lower=1)
 
     # permanent parsing (robust against strings like "true"/"false")
@@ -319,7 +342,7 @@ edited = st.data_editor(
     events_df(),
     num_rows="dynamic",
     key="events_editor",
-    column_order=["name","kind","amount","start","permanent","months","growth_rate_pct","notes"],  # hide 'id' from view
+    column_order=["name","kind","amount","start","permanent","months","end","growth_rate_pct","notes"],  # hide 'id' from view
     use_container_width=True,
     column_config={
         # 'id' is intentionally hidden by column_order but still present in the data frame to preserve identity
@@ -329,6 +352,7 @@ edited = st.data_editor(
         "start": st.column_config.TextColumn("Start (YYYY-MM)", help="First month included, e.g., 2025-08"),
         "permanent": st.column_config.CheckboxColumn("Permanent", help="If checked, ignore months and run to horizon end"),
         "months": st.column_config.NumberColumn("Duration (months)", min_value=1, step=1),
+        "end": st.column_config.TextColumn("End (YYYY-MM)", help="Inclusive end month; overrides Duration if set"),
         "growth_rate_pct": st.column_config.NumberColumn("Growth % / month", help="e.g., 0 for fixed, 1.5 means +1.5% per month", step=0.01, format="%.2f"),
         "notes": st.column_config.TextColumn("Notes", help="Optional"),
     },
